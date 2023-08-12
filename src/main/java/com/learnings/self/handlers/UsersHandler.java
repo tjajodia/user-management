@@ -66,22 +66,46 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
     }
 
     private String handleMissing(APIGatewayProxyRequestEvent requestInput, Context context) {
-        return "";
-
+        return "Not Found";
     }
 
     private String deleteUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        return "";
+        String requestBody = requestInput.getBody();
+        UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
+        UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
 
+        if (existingUser != null) {
+            dynamoDBMapper.delete(existingUser);
+            return "Successfully Deleted User with userId::" + userInRequest.getUserId();
+        } else {
+            return "Sorry the user was not found with userId::" + userInRequest.getUserId();
+        }
     }
 
     private String updateUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        return "";
+        String requestBody = requestInput.getBody();
+        UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
+        UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
 
+        if (existingUser != null) {
+            existingUser.setFirstName(userInRequest.getFirstName());
+            existingUser.setLastName(userInRequest.getLastName());
+            existingUser.setEmailAddress(userInRequest.getEmailAddress());
+            existingUser.setPhoneNumber(userInRequest.getPhoneNumber());
+            existingUser.setUserName(userInRequest.getUserName());
+            existingUser.setAddress(userInRequest.getAddress());
+            dynamoDBMapper.save(existingUser);
+            return "Successfully Updated User with userId::" + userInRequest.getUserId();
+        } else {
+            return "Sorry the user was not found with userId::" + userInRequest.getUserId();
+        }
     }
 
     private String createUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        return "";
+        String requestBody = requestInput.getBody();
+        UserDao userDao = new Gson().fromJson(requestBody, UserDao.class);
+        dynamoDBMapper.save(userDao);
+        return new Gson().toJson(userDao);
     }
 
     private String getUser(APIGatewayProxyRequestEvent requestInput, Context context) {

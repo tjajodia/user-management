@@ -2,6 +2,8 @@ package com.learnings.self.handlers;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBScanExpression;
+import com.amazonaws.services.dynamodbv2.datamodeling.PaginatedScanList;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.GetItemRequest;
 import com.amazonaws.services.dynamodbv2.model.GetItemResult;
@@ -9,8 +11,12 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import com.google.gson.Gson;
+import com.learnings.self.ddb.UserDao;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static com.learnings.self.constants.Constants.USER_TABLE;
@@ -23,37 +29,24 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
 
     public APIGatewayProxyResponseEvent handleRequest(final APIGatewayProxyRequestEvent input, final Context context) {
 
-
         Map<String, String> queryStringParameters = input.getQueryStringParameters();
-        String userId = queryStringParameters.getOrDefault("userId", "default");
-        final AmazonDynamoDB ddbClient = AmazonDynamoDBClientBuilder.defaultClient();
+        final AmazonDynamoDB ddbClient = AmazonDynamoDBClientBuilder.standard().build();
+        final DynamoDBMapper dynamoDBMapper = new DynamoDBMapper(ddbClient);
 
-        Map<String, AttributeValue> getArributeMap = new HashMap<>();
-        getArributeMap.put("userId", new AttributeValue(userId));
+        List<UserDao> allUsers = dynamoDBMapper.scan(UserDao.class, new DynamoDBScanExpression());
 
-        GetItemRequest getItemRequest = new GetItemRequest()
-                .withKey(getArributeMap)
-                .withTableName(USER_TABLE);
-
-        GetItemResult itemResult = ddbClient.getItem(getItemRequest);
-        Map<String, AttributeValue> resultMap = itemResult.getItem();
+        String result = new Gson().toJson(allUsers);
 
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("X-Custom-Header", "application/json");
 
-        String firstName = resultMap.get("firstName").toString();
-        String lastName = resultMap.get("lastName").toString();
-        String emailAddress = resultMap.get("emailAddress").toString();
-
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
                 .withHeaders(headers);
         try {
-            String output = String.format("{ \"name\": \" %s %s \", \"email\": \"%s\" }",firstName,lastName,emailAddress);
-
             return response
                     .withStatusCode(200)
-                    .withBody(output);
+                    .withBody(result);
         } catch (Exception e) {
             return response
                     .withBody("{}")

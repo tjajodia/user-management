@@ -85,6 +85,7 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
 
             if (existingUser != null) {
                 dynamoDBMapper.delete(existingUser);
+                elasticClient.removeItem(existingUser);
                 response = "Successfully Deleted User with userId::" + userInRequest.getUserId();
             } else
                 response = "Sorry the user was not found with userId::" + userInRequest.getUserId();
@@ -98,7 +99,6 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
             // Put the message in DLQ and raise Alarm
             return Pair.of("Something Went Wrong", 500);
         }
-
     }
 
     private Pair<String, Integer> updateUser(APIGatewayProxyRequestEvent requestInput, Context context) {
@@ -144,6 +144,8 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
         try {
             System.out.println("createUser Invoked");
             String requestBody = requestInput.getBody();
+
+            // More Validations Can be Added based on requirements
             UserDao userDao = new Gson().fromJson(requestBody, UserDao.class);
 
             dynamoDBMapper.save(userDao);
@@ -173,15 +175,20 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
                 String userId = queryStringParameters.get("userId");
                 UserDao user = elasticClient
                         .getItem(userId)
-                        .orElse(dynamoDBMapper
+                        .orElse(dynamoDBMapper  // Mostly this will not be queried
                                 .load(UserDao.class, userId));
                 response = new Gson()
                         .toJson(user);
             } else {
-                List<UserDao> allUsers = dynamoDBMapper
-                        .scan(UserDao.class, new DynamoDBScanExpression());
+
+                // Paginated Support Can be Added as per Requirement
+                List<UserDao> allEntries = elasticClient.getAll();
+                if (allEntries == null || allEntries.isEmpty()) {
+                    allEntries = dynamoDBMapper // Mostly this will not be queried
+                            .scan(UserDao.class, new DynamoDBScanExpression());
+                }
                 response = new Gson()
-                        .toJson(allUsers);
+                        .toJson(allEntries);
             }
             System.out.println("getUser Completed");
             return Pair.of(response, 200);

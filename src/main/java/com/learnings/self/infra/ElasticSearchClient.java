@@ -17,6 +17,8 @@ import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static com.learnings.self.constants.Constants.*;
@@ -38,7 +40,7 @@ public class ElasticSearchClient {
 
     public Optional<UserDao> getItem(String userId) throws IOException {
         System.out.println("ElasticSearchClient getItem Invoked");
-        Request getRequest = new Request("GET", "/" + Constants.ES_INDEX_NAME + "/_doc/" + Constants.ES_DOC_ID);
+        Request getRequest = new Request("GET", "/" + Constants.ES_INDEX_NAME + "/_doc/" + userId);
         Response getResponse = restClient.performRequest(getRequest);
 
         String userString = IOUtils.toString(getResponse.getEntity().getContent());
@@ -58,11 +60,42 @@ public class ElasticSearchClient {
 
     public void putItem(UserDao user) throws IOException {
         System.out.println("ElasticSearchClient putItem Invoked");
-        Request indexRequest = new Request("PUT", "/" + ES_INDEX_NAME + "/_doc/" + Constants.ES_DOC_ID);
+        String userId = user.getUserId();
+        Request indexRequest = new Request("PUT", "/" + ES_INDEX_NAME + "/_doc/" + userId);
         String userString = new Gson().toJson(user);
         indexRequest.setJsonEntity(userString);
         Response indexResponse = restClient.performRequest(indexRequest);
         String responseString = IOUtils.toString(indexResponse.getEntity().getContent());
         System.out.printf("ElasticSearchClient putItem Completed with response:: %s", responseString);
+    }
+
+    public void removeItem(UserDao user) throws IOException {
+        System.out.println("ElasticSearchClient removeItem Invoked");
+        String userId = user.getUserId();
+        Request indexRequest = new Request("DELETE", "/" + ES_INDEX_NAME + "/_doc/" + userId);
+        String userString = new Gson().toJson(user);
+        indexRequest.setJsonEntity(userString);
+        Response indexResponse = restClient.performRequest(indexRequest);
+        String responseString = IOUtils.toString(indexResponse.getEntity().getContent());
+        System.out.printf("ElasticSearchClient removeItem Completed with response:: %s", responseString);
+    }
+
+    public List<UserDao> getAll() throws IOException {
+        System.out.println("getAll removeItem Invoked");
+        // Default Size is 10 Can be increase based on the requirements.
+        Request indexRequest = new Request("GET", "/" + ES_INDEX_NAME + "/_search/");
+        Response indexResponse = restClient.performRequest(indexRequest);
+        String responseString = IOUtils.toString(indexResponse.getEntity().getContent());
+
+        List<UserDao> userDaoList = new ArrayList<>();
+
+        JsonObject jsonObject = JsonParser.parseString(responseString).getAsJsonObject();
+        jsonObject.get("hits").getAsJsonObject().get("hits").getAsJsonArray().forEach(item -> {
+            JsonElement obj = item.getAsJsonObject().get("_source");
+            UserDao user = new Gson().fromJson(obj, UserDao.class);
+            userDaoList.add(user);
+        });
+        System.out.printf("ElasticSearchClient removeItem Completed with response:: %s", responseString);
+        return userDaoList;
     }
 }

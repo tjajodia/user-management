@@ -11,7 +11,9 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent
 import com.google.gson.Gson;
 import com.learnings.self.ddb.UserDao;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
+import com.learnings.self.redis.ElasticSearchClient;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,8 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
     final AmazonDynamoDB ddbClient = AmazonDynamoDBClientBuilder.standard().build();
     final DynamoDBMapper dynamoDBMapper = new DynamoDBMapper(ddbClient);
 
+    ElasticSearchClient elasticClient = new ElasticSearchClient();
+
     public APIGatewayProxyResponseEvent handleRequest(final APIGatewayProxyRequestEvent requestInput, final Context context) {
 
         Map<String, String> headers = new HashMap<>();
@@ -35,6 +39,7 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
 
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
                 .withHeaders(headers);
+
 
         try {
 
@@ -83,6 +88,8 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
     }
 
     private String updateUser(APIGatewayProxyRequestEvent requestInput, Context context) {
+        LambdaLogger logger = context.getLogger();
+        logger.log("updateUser Invoked");
         String requestBody = requestInput.getBody();
         UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
         UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
@@ -95,6 +102,13 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
             existingUser.setUserName(userInRequest.getUserName());
             existingUser.setAddress(userInRequest.getAddress());
             dynamoDBMapper.save(existingUser);
+            try {
+                elasticClient.putItem(existingUser);
+            } catch (Exception e) {
+                logger.log("updateUser Failed with Exception");
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }
             return "Successfully Updated User with userId::" + userInRequest.getUserId();
         } else {
             return "Sorry the user was not found with userId::" + userInRequest.getUserId();
@@ -102,9 +116,19 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
     }
 
     private String createUser(APIGatewayProxyRequestEvent requestInput, Context context) {
+        LambdaLogger logger = context.getLogger();
+        logger.log("createUser Invoked");
         String requestBody = requestInput.getBody();
         UserDao userDao = new Gson().fromJson(requestBody, UserDao.class);
         dynamoDBMapper.save(userDao);
+        try {
+            elasticClient.putItem(userDao);
+        } catch (Exception e) {
+            logger.log("createUser Failed with Exception");
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        }
+        logger.log("createUser Completed");
         return new Gson().toJson(userDao);
     }
 
@@ -119,7 +143,18 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
 
         if (queryStringParameters != null && queryStringParameters.containsKey("userId")) {
             String userId = queryStringParameters.get("userId");
-            UserDao user = dynamoDBMapper.load(UserDao.class, userId);
+
+            UserDao user = null;
+            try {
+                user = elasticClient
+                        .getItem(userId)
+                        .orElse(dynamoDBMapper.load(UserDao.class, userId));
+            } catch (Exception e) {
+                logger.log("getUser Failed with Exception");
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }
+            logger.log("getUser Completed");
             return new Gson().toJson(user);
 
         } else {

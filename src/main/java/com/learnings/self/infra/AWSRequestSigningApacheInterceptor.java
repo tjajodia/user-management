@@ -1,4 +1,4 @@
-package com.learnings.self.redis;
+package com.learnings.self.infra;
 
 
 import com.amazonaws.DefaultRequest;
@@ -30,6 +30,7 @@ import static org.apache.http.protocol.HttpCoreContext.HTTP_TARGET_HOST;
 
 /**
  * An {@link HttpRequestInterceptor} that signs requests using any AWS {@link Signer}
+ * <a href="https://stackoverflow.com/questions/59890232/unable-to-resolve-awsrequestsigningapacheinterceptor">...</a>
  * and {@link AWSCredentialsProvider}.
  */
 public class AWSRequestSigningApacheInterceptor implements HttpRequestInterceptor {

@@ -2,21 +2,21 @@ package com.learnings.self.handlers;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBScanExpression;
 import com.amazonaws.services.lambda.runtime.Context;
-import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import com.google.gson.Gson;
 import com.learnings.self.ddb.UserDao;
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
-import com.learnings.self.redis.ElasticSearchClient;
+import com.learnings.self.infra.ElasticSearchClient;
+import org.apache.commons.lang3.tuple.Pair;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 
 /**
  * Handler for requests to Lambda function.
@@ -35,7 +35,7 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
         headers.put("X-Custom-Header", "application/json");
 
         String httpMethod = requestInput.getHttpMethod();
-        String result = "";
+        Pair<String, Integer> result;
 
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent()
                 .withHeaders(headers);
@@ -61,8 +61,8 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
                     break;
             }
             return response
-                    .withStatusCode(200)
-                    .withBody(result);
+                    .withStatusCode(result.getRight())
+                    .withBody(result.getLeft());
         } catch (Exception e) {
             return response
                     .withBody("{}")
@@ -70,99 +70,127 @@ public class UsersHandler implements RequestHandler<APIGatewayProxyRequestEvent,
         }
     }
 
-    private String handleMissing(APIGatewayProxyRequestEvent requestInput, Context context) {
-        return "Not Found";
+    private Pair<String, Integer> handleMissing(APIGatewayProxyRequestEvent requestInput, Context context) {
+        return Pair.of("UnKnown Method", 404);
     }
 
-    private String deleteUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        String requestBody = requestInput.getBody();
-        UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
-        UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
-
-        if (existingUser != null) {
-            dynamoDBMapper.delete(existingUser);
-            return "Successfully Deleted User with userId::" + userInRequest.getUserId();
-        } else {
-            return "Sorry the user was not found with userId::" + userInRequest.getUserId();
-        }
-    }
-
-    private String updateUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        LambdaLogger logger = context.getLogger();
-        logger.log("updateUser Invoked");
-        String requestBody = requestInput.getBody();
-        UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
-        UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
-
-        if (existingUser != null) {
-            existingUser.setFirstName(userInRequest.getFirstName());
-            existingUser.setLastName(userInRequest.getLastName());
-            existingUser.setEmailAddress(userInRequest.getEmailAddress());
-            existingUser.setPhoneNumber(userInRequest.getPhoneNumber());
-            existingUser.setUserName(userInRequest.getUserName());
-            existingUser.setAddress(userInRequest.getAddress());
-            dynamoDBMapper.save(existingUser);
-            try {
-                elasticClient.putItem(existingUser);
-            } catch (Exception e) {
-                logger.log("updateUser Failed with Exception");
-                e.printStackTrace();
-                throw new RuntimeException(e);
-            }
-            return "Successfully Updated User with userId::" + userInRequest.getUserId();
-        } else {
-            return "Sorry the user was not found with userId::" + userInRequest.getUserId();
-        }
-    }
-
-    private String createUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        LambdaLogger logger = context.getLogger();
-        logger.log("createUser Invoked");
-        String requestBody = requestInput.getBody();
-        UserDao userDao = new Gson().fromJson(requestBody, UserDao.class);
-        dynamoDBMapper.save(userDao);
+    private Pair<String, Integer> deleteUser(APIGatewayProxyRequestEvent requestInput, Context context) {
         try {
-            elasticClient.putItem(userDao);
-        } catch (Exception e) {
-            logger.log("createUser Failed with Exception");
-            e.printStackTrace();
-            throw new RuntimeException(e);
+            System.out.println("deleteUser Invoked");
+            String requestBody = requestInput.getBody();
+            UserDao userInRequest = new Gson().fromJson(requestBody, UserDao.class);
+            UserDao existingUser = dynamoDBMapper.load(UserDao.class, userInRequest.getUserId());
+
+            String response = "";
+
+            if (existingUser != null) {
+                dynamoDBMapper.delete(existingUser);
+                response = "Successfully Deleted User with userId::" + userInRequest.getUserId();
+            } else
+                response = "Sorry the user was not found with userId::" + userInRequest.getUserId();
+
+            System.out.println("deleteUser Completed");
+            return Pair.of(response, 200);
+
+        } catch (Exception exp) {
+            System.out.println("deleteUser Invoked");
+            exp.printStackTrace();
+            // Put the message in DLQ and raise Alarm
+            return Pair.of("Something Went Wrong", 500);
         }
-        logger.log("createUser Completed");
-        return new Gson().toJson(userDao);
+
     }
 
-    private String getUser(APIGatewayProxyRequestEvent requestInput, Context context) {
-        Map<String, String> queryStringParameters = requestInput.getQueryStringParameters();
-        Map<String, String> pathParameters = requestInput.getPathParameters();
-        String pathParametersString = new Gson().toJson(pathParameters);
-        String queryStringParametersString = new Gson().toJson(queryStringParameters);
-        LambdaLogger logger = context.getLogger();
+    private Pair<String, Integer> updateUser(APIGatewayProxyRequestEvent requestInput, Context context) {
+        try {
+            System.out.println("updateUser Invoked");
+            String requestBody = requestInput.getBody();
 
-        logger.log(String.format("getUser pathParams ::%s and queryParams ::%s", pathParametersString, queryStringParametersString));
+            // More Validations Can be Added based on requirements
+            UserDao userInRequest = new Gson()
+                    .fromJson(requestBody, UserDao.class);
 
-        if (queryStringParameters != null && queryStringParameters.containsKey("userId")) {
-            String userId = queryStringParameters.get("userId");
+            UserDao existingUser = dynamoDBMapper
+                    .load(UserDao.class, userInRequest.getUserId());
 
-            UserDao user = null;
-            try {
-                user = elasticClient
-                        .getItem(userId)
-                        .orElse(dynamoDBMapper.load(UserDao.class, userId));
-            } catch (Exception e) {
-                logger.log("getUser Failed with Exception");
-                e.printStackTrace();
-                throw new RuntimeException(e);
-            }
-            logger.log("getUser Completed");
-            return new Gson().toJson(user);
+            String response = "";
 
-        } else {
-            List<UserDao> allUsers = dynamoDBMapper.scan(UserDao.class, new DynamoDBScanExpression());
-            return new Gson().toJson(allUsers);
+            if (existingUser != null) {
+                existingUser.setFirstName(userInRequest.getFirstName());
+                existingUser.setLastName(userInRequest.getLastName());
+                existingUser.setEmailAddress(userInRequest.getEmailAddress());
+                existingUser.setPhoneNumber(userInRequest.getPhoneNumber());
+                existingUser.setUserName(userInRequest.getUserName());
+                existingUser.setAddress(userInRequest.getAddress());
+
+                dynamoDBMapper.save(existingUser);
+                elasticClient.putItem(existingUser);
+
+                response = "Successfully Updated User with userId::" + userInRequest.getUserId();
+            } else
+                response = "Sorry the user was not found with userId::" + userInRequest.getUserId();
+            System.out.println("updateUser Completed");
+            return Pair.of(response, 200);
+
+        } catch (Exception exp) {
+            System.out.println("updateUser Invoked");
+            exp.printStackTrace();
+            // Put the message in DLQ and raise Alarm
+            return Pair.of("Something Went Wrong", 500);
         }
+    }
 
+    private Pair<String, Integer> createUser(APIGatewayProxyRequestEvent requestInput, Context context) {
+        try {
+            System.out.println("createUser Invoked");
+            String requestBody = requestInput.getBody();
+            UserDao userDao = new Gson().fromJson(requestBody, UserDao.class);
 
+            dynamoDBMapper.save(userDao);
+            elasticClient.putItem(userDao);
+
+            String response = new Gson()
+                    .toJson(userDao);
+            System.out.println("createUser Completed");
+            return Pair.of(response, 200);
+        } catch (Exception exp) {
+            System.out.println("createUser failed");
+            exp.printStackTrace();
+            // Put the message in DLQ and raise Alarms
+            return Pair.of("Something Went Wrong", 500);
+        }
+    }
+
+    private Pair<String, Integer> getUser(APIGatewayProxyRequestEvent requestInput, Context context) {
+        try {
+            System.out.println("getUser Invoked");
+            Map<String, String> queryStringParameters = requestInput.getQueryStringParameters();
+
+            String response = "";
+
+            if (queryStringParameters != null && queryStringParameters.containsKey("userId")) {
+
+                String userId = queryStringParameters.get("userId");
+                UserDao user = elasticClient
+                        .getItem(userId)
+                        .orElse(dynamoDBMapper
+                                .load(UserDao.class, userId));
+                response = new Gson()
+                        .toJson(user);
+            } else {
+                List<UserDao> allUsers = dynamoDBMapper
+                        .scan(UserDao.class, new DynamoDBScanExpression());
+                response = new Gson()
+                        .toJson(allUsers);
+            }
+            System.out.println("getUser Completed");
+            return Pair.of(response, 200);
+        } catch (Exception exp) {
+            System.out.println("getUser Failed");
+            exp.printStackTrace();
+            // Put the message in DLQ and raise Alarms
+            return Pair.of("Something Went Wrong", 500);
+        }
     }
 }
 
